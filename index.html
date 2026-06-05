@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>stroke2path — обводка SVG в залитый контур</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; color: #222; }
+    h1 { font-size: 20px; }
+    p.hint { color: #555; line-height: 1.5; }
+    textarea { width: 100%; height: 220px; font-family: ui-monospace, monospace; font-size: 13px; box-sizing: border-box; padding: 10px; }
+    .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+    .row label { font-size: 13px; color: #444; }
+    input[type=number] { width: 80px; }
+    button { font-size: 14px; padding: 8px 14px; cursor: pointer; }
+    #preview { display: flex; gap: 24px; margin-top: 16px; }
+    .pv { border: 1px dashed #ccc; padding: 12px; min-width: 140px; min-height: 140px; display: flex; align-items: center; justify-content: center; background: #fafafa; }
+    .pv-label { font-size: 12px; color: #888; text-align: center; }
+    #warnings { color: #b35900; font-size: 13px; white-space: pre-line; margin-top: 10px; }
+    .drop-hint { font-size: 12px; color: #999; }
+  </style>
+</head>
+<body>
+  <h1>stroke2path — обводка → залитый контур</h1>
+  <p class="hint">
+    Вставьте SVG-код иконки в поле ниже (или перетащите <code>.svg</code>-файл прямо в поле) и нажмите
+    <b>«Конвертировать»</b>. Инструмент превратит обводку (<code>stroke</code>) в залитый
+    <code>path</code> — такие иконки принимает icomoon для иконочного шрифта. Результат заменит
+    содержимое поля; скопируйте его или нажмите <b>«Скачать .svg»</b>.
+  </p>
+
+  <textarea id="code" placeholder="Вставьте сюда SVG-код или перетащите .svg файл..." spellcheck="false"></textarea>
+  <div class="drop-hint">Перетаскивание <code>.svg</code>-файла вставит его код в поле.</div>
+
+  <div class="row">
+    <button id="convert">Конвертировать</button>
+    <button id="download">Скачать .svg</button>
+    <label>Толщина: <input type="number" id="width" step="0.1" min="0" placeholder="из SVG"></label>
+    <label>Гладкость: <input type="number" id="smoothness" step="0.05" min="0.01" value="0.15"></label>
+  </div>
+
+  <div id="warnings"></div>
+
+  <div id="preview">
+    <div>
+      <div class="pv" id="pv-box"></div>
+      <div class="pv-label">превью текущего кода</div>
+    </div>
+  </div>
+
+  <script src="vendor/svgpath.umd.js"></script>
+  <script src="vendor/clipper.js"></script>
+  <script src="src/stroke2path.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

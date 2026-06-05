@@ -1,0 +1,12 @@
+{
+  "name": "stroke2path",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Convert SVG stroke to filled path for icon fonts",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@xmldom/xmldom": "^0.8.10"
+  }
+}
