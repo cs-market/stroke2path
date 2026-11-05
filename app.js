@@ -19,7 +19,7 @@
   }
   function parseSmooth() {
     var v = parseFloat(smoothEl.value);
-    return v > 0 ? v : 0.15;
+    return v > 0 ? v : 0.05;
   }
 
   function renderPreview() {
@@ -33,8 +33,8 @@
       // вырезаем потенциально опасные узлы
       var scripts = svg.getElementsByTagName('script');
       while (scripts.length) scripts[0].parentNode.removeChild(scripts[0]);
-      svg.setAttribute('width', '120');
-      svg.setAttribute('height', '120');
+      svg.setAttribute('width', '240');
+      svg.setAttribute('height', '240');
       pvBox.appendChild(document.importNode(svg, true));
     } catch (e) {
       pvBox.textContent = 'Невалидный SVG';

@@ -85,7 +85,7 @@
   }
 
   function flattenPath(d, smoothness) {
-    var tol = smoothness > 0 ? smoothness : 0.15;
+    var tol = smoothness > 0 ? smoothness : 0.05;
     var subpaths = [];
     var cur = null;
     var startX = 0, startY = 0, curX = 0, curY = 0;
@@ -125,10 +125,112 @@
     return subpaths;
   }
 
+  function simplifyPolyline(pts, tol) {
+    if (pts.length < 3) return pts;
+    var keep = [];
+    for (var k = 0; k < pts.length; k++) keep.push(false);
+    keep[0] = keep[pts.length - 1] = true;
+    var stack = [[0, pts.length - 1]];
+    while (stack.length) {
+      var seg = stack.pop(), a = seg[0], b = seg[1];
+      var ax = pts[a][0], ay = pts[a][1], dx = pts[b][0] - ax, dy = pts[b][1] - ay;
+      var len = Math.sqrt(dx * dx + dy * dy), maxD = 0, maxI = -1;
+      for (var i = a + 1; i < b; i++) {
+        var d = len > 0 ? Math.abs((pts[i][0] - ax) * dy - (pts[i][1] - ay) * dx) / len
+          : Math.sqrt((pts[i][0] - ax) * (pts[i][0] - ax) + (pts[i][1] - ay) * (pts[i][1] - ay));
+        if (d > maxD) { maxD = d; maxI = i; }
+      }
+      if (maxD > tol) { keep[maxI] = true; stack.push([a, maxI], [maxI, b]); }
+    }
+    return pts.filter(function (p, i) { return keep[i]; });
+  }
+
+  function arcSegmentCount(sweep, r, tol) {
+    var n = 1;
+    while (n < 64) {
+      var q = sweep / n / 4;
+      var err = r * 4 / 27 * Math.pow(Math.sin(q), 6) / Math.pow(Math.cos(q), 2);
+      if (err <= tol) return n;
+      n++;
+    }
+    return n;
+  }
+
+  function fitRoundArcs(contour, centers, r, tol, S) {
+    var n = contour.length;
+    if (n < 3) return contour;
+    var eps = 2 / S + r * 1e-3, maxStep = Math.PI / 6, minSweep = Math.PI / 12;
+    var near = function (p, c) { return Math.abs(Math.sqrt((p[0] - c[0]) * (p[0] - c[0]) + (p[1] - c[1]) * (p[1] - c[1])) - r) < eps; };
+    var angle = function (p, c) { return Math.atan2(p[1] - c[1], p[0] - c[0]); };
+    var wrap = function (a) {
+      while (a > Math.PI) a -= 2 * Math.PI;
+      while (a <= -Math.PI) a += 2 * Math.PI;
+      return a;
+    };
+
+    var edgeCenter = [], edgeSweep = [];
+    for (var i = 0; i < n; i++) {
+      var p = contour[i], q = contour[(i + 1) % n], found = -1, sw = 0;
+      for (var k = 0; k < centers.length; k++) {
+        var c = centers[k];
+        if (!near(p, c) || !near(q, c)) continue;
+        var d = wrap(angle(q, c) - angle(p, c));
+        if (Math.abs(d) < maxStep && Math.abs(d) > 1e-9) { found = k; sw = d; break; }
+      }
+      edgeCenter.push(found);
+      edgeSweep.push(sw);
+    }
+
+    var rot = 0;
+    for (i = 0; i < n; i++) {
+      if (edgeCenter[i] !== edgeCenter[(i - 1 + n) % n]) { rot = i; break; }
+    }
+    var P = [], E = [], D = [];
+    for (i = 0; i <= n; i++) P.push(contour[(rot + i) % n]);
+    for (i = 0; i < n; i++) { E.push(edgeCenter[(rot + i) % n]); D.push(edgeSweep[(rot + i) % n]); }
+
+    var out = [P[0]], buf = [P[0]];
+    var flush = function () {
+      var s = simplifyPolyline(buf, tol);
+      for (var t = 1; t < s.length; t++) out.push(s[t]);
+    };
+
+    var j = 0;
+    while (j < n) {
+      var ck = E[j], e = j, sweep = 0;
+      while (e < n && E[e] === ck) { sweep += D[e]; e++; }
+      if (ck >= 0 && Math.abs(sweep) >= minSweep) {
+        flush();
+        var cc = centers[ck], segs = arcSegmentCount(Math.abs(sweep), r, tol), step = sweep / segs;
+        var a0 = angle(P[j], cc), h = 4 / 3 * Math.tan(step / 4);
+        for (var s = 0; s < segs; s++) {
+          var a1 = a0 + step;
+          var p0 = s === 0 ? P[j] : [cc[0] + r * Math.cos(a0), cc[1] + r * Math.sin(a0)];
+          var p3 = s === segs - 1 ? P[e] : [cc[0] + r * Math.cos(a1), cc[1] + r * Math.sin(a1)];
+          out.push([
+            p3[0], p3[1],
+            p0[0] - h * r * Math.sin(a0), p0[1] + h * r * Math.cos(a0),
+            p3[0] + h * r * Math.sin(a1), p3[1] - h * r * Math.cos(a1)
+          ]);
+          a0 = a1;
+        }
+        buf = [P[e]];
+      } else {
+        for (var t = j + 1; t <= e; t++) buf.push(P[t]);
+      }
+      j = e;
+    }
+    flush();
+
+    var last = out[out.length - 1];
+    if (out.length > 1 && last.length === 2 && last[0] === P[0][0] && last[1] === P[0][1]) out.pop();
+    return out;
+  }
+
   function outlineSubpaths(subpaths, stroke, opts) {
     opts = opts || {};
     var S = opts.scale || 1000;
-    var smoothness = opts.smoothness > 0 ? opts.smoothness : 0.15;
+    var smoothness = opts.smoothness > 0 ? opts.smoothness : 0.05;
     var JT = ClipperLib.JoinType, ET = ClipperLib.EndType;
     var jt = stroke.linejoin === 'round' ? JT.jtRound
       : stroke.linejoin === 'bevel' ? JT.jtSquare
@@ -137,7 +239,8 @@
       : stroke.linecap === 'square' ? ET.etOpenSquare
       : ET.etOpenButt;
 
-    var co = new ClipperLib.ClipperOffset(stroke.miterLimit || 4, smoothness * S);
+    var co = new ClipperLib.ClipperOffset(stroke.miterLimit || 4, ClipperLib.ClipperOffset.def_arc_tolerance);
+    var centers = [];
 
     subpaths.forEach(function (sp) {
       var pts = sp.points.slice();
@@ -151,13 +254,19 @@
       var path = pts.map(function (p) {
         return { X: Math.round(p[0] * S), Y: Math.round(p[1] * S) };
       });
+      path.forEach(function (pt, i) {
+        var isEnd = !closed && (i === 0 || i === path.length - 1);
+        if (isEnd ? stroke.linecap === 'round' : stroke.linejoin === 'round') centers.push([pt.X / S, pt.Y / S]);
+      });
       co.AddPath(path, jt, closed ? ET.etClosedLine : capET);
     });
 
     var solution = [];
-    co.Execute(solution, (stroke.width / 2) * S);
+    var r = stroke.width / 2;
+    co.Execute(solution, r * S);
     return solution.map(function (path) {
-      return path.map(function (pt) { return [pt.X / S, pt.Y / S]; });
+      var pts = path.map(function (pt) { return [pt.X / S, pt.Y / S]; });
+      return fitRoundArcs(pts, centers, r, smoothness, S);
     });
   }
 
@@ -167,17 +276,50 @@
   }
 
   function fmt(n, p) {
-    return String(roundNum(n, p));
+    var s = String(roundNum(n, p));
+    if (s === '-0') return '0';
+    return s.replace(/^(-?)0\./, '$1.');
+  }
+
+  function joinNums(nums, p) {
+    var out = '', prev = '';
+    nums.forEach(function (v, i) {
+      var s = fmt(v, p);
+      var glue = i === 0 || s.charAt(0) === '-' || (s.charAt(0) === '.' && prev.indexOf('.') !== -1);
+      out += (glue ? '' : ' ') + s;
+      prev = s;
+    });
+    return out;
   }
 
   function contoursToPathData(contours, precision) {
-    return contours.map(function (c) {
-      var s = '';
-      for (var i = 0; i < c.length; i++) {
-        s += (i === 0 ? 'M' : 'L') + fmt(c[i][0], precision) + ' ' + fmt(c[i][1], precision);
-      }
-      return s + 'Z';
-    }).join('');
+    var R = function (v) { return roundNum(v, precision); };
+    var out = '', cx = 0, cy = 0;
+    contours.forEach(function (c) {
+      if (!c.length) return;
+      c.forEach(function (pt, i) {
+        var x = R(pt[0]), y = R(pt[1]);
+        if (i === 0) {
+          out += out ? 'm' + joinNums([R(x - cx), R(y - cy)], precision) : 'M' + joinNums([x, y], precision);
+        } else if (pt.length === 2) {
+          var dx = R(x - cx), dy = R(y - cy);
+          if (dx === 0 && dy === 0) return;
+          out += dx === 0 ? 'v' + joinNums([dy], precision)
+            : dy === 0 ? 'h' + joinNums([dx], precision)
+            : 'l' + joinNums([dx, dy], precision);
+        } else {
+          out += 'c' + joinNums([
+            R(R(pt[2]) - cx), R(R(pt[3]) - cy),
+            R(R(pt[4]) - cx), R(R(pt[5]) - cy),
+            R(x - cx), R(y - cy)
+          ], precision);
+        }
+        cx = x; cy = y;
+      });
+      out += 'z';
+      cx = R(c[0][0]); cy = R(c[0][1]);
+    });
+    return out;
   }
 
   function emitSvg(outlineByColor, fillPaths, attrs) {
@@ -272,7 +414,7 @@
   function convert(svgString, options) {
     options = options || {};
     var precision = options.precision != null ? options.precision : 3;
-    var smoothness = options.smoothness > 0 ? options.smoothness : 0.15;
+    var smoothness = options.smoothness > 0 ? options.smoothness : 0.05;
     var warnings = [];
 
     var parser = options.parser || (typeof DOMParser !== 'undefined' ? new DOMParser() : null);
