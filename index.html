@@ -4,53 +4,159 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>stroke2path — обводка SVG в залитый контур</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; color: #222; }
-    h1 { font-size: 20px; }
-    p.hint { color: #555; line-height: 1.5; }
-    textarea { width: 100%; height: 220px; font-family: ui-monospace, monospace; font-size: 13px; box-sizing: border-box; padding: 10px; }
-    .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
-    .row label { font-size: 13px; color: #444; }
-    input[type=number] { width: 80px; }
-    button { font-size: 14px; padding: 8px 14px; cursor: pointer; }
-    #preview { display: flex; gap: 24px; margin-top: 16px; }
-    .pv { border: 1px dashed #ccc; padding: 12px; min-width: 280px; min-height: 280px; display: flex; align-items: center; justify-content: center; background: #fafafa; }
-    .pv-label { font-size: 12px; color: #888; text-align: center; }
-    #warnings { color: #b35900; font-size: 13px; white-space: pre-line; margin-top: 10px; }
-    .drop-hint { font-size: 12px; color: #999; }
-  </style>
+  <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <h1>stroke2path — обводка → залитый контур</h1>
-  <p class="hint">
-    Вставьте SVG-код иконки в поле ниже (или перетащите <code>.svg</code>-файл прямо в поле) и нажмите
-    <b>«Конвертировать»</b>. Инструмент превратит обводку (<code>stroke</code>) в залитый
-    <code>path</code> — такие иконки принимает icomoon для иконочного шрифта. Результат заменит
-    содержимое поля; скопируйте его или нажмите <b>«Скачать .svg»</b>.
-  </p>
+  <div class="app" id="app">
+    <header class="head">
+      <h1>stroke2path</h1>
+      <p>Превращает обводку SVG в залитый контур из кривых Безье — такие иконки принимают icomoon и другие генераторы иконочных шрифтов.</p>
+    </header>
 
-  <textarea id="code" placeholder="Вставьте сюда SVG-код или перетащите .svg файл..." spellcheck="false"></textarea>
-  <div class="drop-hint">Перетаскивание <code>.svg</code>-файла вставит его код в поле.</div>
+    <section class="block source" aria-labelledby="source-title">
+      <div class="block-head">
+        <h2 id="source-title">Исходный SVG</h2>
+        <div class="actions">
+          <button type="button" class="btn" id="open">Открыть файлы</button>
+        </div>
+      </div>
+      <input type="file" id="file" accept=".svg,image/svg+xml" multiple hidden>
 
-  <div class="row">
-    <button id="convert">Конвертировать</button>
-    <button id="download">Скачать .svg</button>
-    <label>Толщина: <input type="number" id="width" step="0.1" min="0" placeholder="из SVG"></label>
-    <label>Гладкость: <input type="number" id="smoothness" step="0.05" min="0.01" value="0.05"></label>
-  </div>
+      <div class="files" id="files" hidden>
+        <div class="files-head">
+          <span id="files-count"></span>
+          <button type="button" class="btn btn-quiet btn-small" id="files-clear">Очистить</button>
+        </div>
+        <ul id="files-list"></ul>
+        <button type="button" class="btn btn-primary btn-wide" id="zip">Скачать все в .zip</button>
+      </div>
 
-  <div id="warnings"></div>
+      <label class="visually-hidden" for="code">Код исходного SVG</label>
+      <textarea id="code" class="code" spellcheck="false" placeholder="Вставьте SVG-код или перетащите сюда .svg-файлы — можно сразу несколько."></textarea>
+    </section>
 
-  <div id="preview">
-    <div>
-      <div class="pv" id="pv-box"></div>
-      <div class="pv-label">превью текущего кода</div>
-    </div>
+    <section class="block settings" aria-labelledby="stroke-title">
+      <h2 id="stroke-title">Обводка</h2>
+      <div class="field">
+        <label for="width">Толщина</label>
+        <input type="number" id="width" step="0.1" min="0" placeholder="из SVG" inputmode="decimal">
+        <p class="hint">Пусто или 0 — толщина берётся из самого SVG.</p>
+      </div>
+      <div class="field">
+        <label for="smoothness-range">Допуск</label>
+        <div class="range-row">
+          <input type="range" id="smoothness-range" min="0.01" max="0.3" step="0.01" value="0.05">
+          <input type="number" id="smoothness" min="0.005" max="1" step="0.005" value="0.05" inputmode="decimal" aria-label="Допуск, число">
+        </div>
+        <p class="hint">Допустимое отклонение от точной формы в единицах сетки. Меньше — точнее, но больше кривых.</p>
+      </div>
+    </section>
+
+    <section class="block settings" aria-labelledby="color-title">
+      <h2 id="color-title">Цвет</h2>
+      <fieldset class="choice">
+        <legend class="visually-hidden">Цвет заливки</legend>
+        <label><input type="radio" name="color-mode" value="keep" checked> Как в исходнике</label>
+        <label><input type="radio" name="color-mode" value="remove"> <span>Без цвета <span class="hint-inline">— атрибут fill не пишется</span></span></label>
+        <label class="with-swatch"><input type="radio" name="color-mode" value="solid"> Один цвет <input type="color" id="color" value="#000000" aria-label="Цвет заливки"></label>
+        <label><input type="radio" name="color-mode" value="current"> <span>currentColor <span class="hint-inline">— цвет текста на сайте</span></span></label>
+      </fieldset>
+      <div class="palette" id="palette" hidden>
+        <h3 id="palette-title">Сделать прозрачным</h3>
+        <div class="chips" id="chips" role="group" aria-labelledby="palette-title"></div>
+        <p class="hint">Отмеченный цвет вырезается из всего, что нарисовано под ним: белые детали на тёмном круге станут дырками.</p>
+      </div>
+    </section>
+
+    <section class="block settings" aria-labelledby="opt-title">
+      <h2 id="opt-title">Оптимизация кода</h2>
+      <div class="field field-inline">
+        <label for="precision">Знаков после запятой</label>
+        <select id="precision">
+          <option value="auto" selected>Авто</option>
+          <option value="0">0</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select>
+      </div>
+      <label class="check"><input type="checkbox" id="compact" checked> Компактная запись путей</label>
+      <label class="check"><input type="checkbox" id="dims"> Убрать width и height, оставить viewBox</label>
+    </section>
+
+    <section class="block result" aria-labelledby="result-title">
+      <h2 id="result-title">Результат</h2>
+      <dl class="stats" id="stats" aria-live="polite">
+        <div><dt>Размер</dt><dd id="stat-size">—</dd></div>
+        <div><dt>Узлов</dt><dd id="stat-nodes">—</dd></div>
+      </dl>
+      <div class="warnings" id="warnings" aria-live="polite"></div>
+      <label class="visually-hidden" for="out">Код результата</label>
+      <textarea id="out" class="code" readonly spellcheck="false" placeholder="Здесь появится результат."></textarea>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="download">Скачать .svg</button>
+        <button type="button" class="btn" id="copy">Скопировать код</button>
+      </div>
+    </section>
+
+    <main class="stage" id="stage" aria-label="Превью">
+      <div class="stage-bar">
+        <fieldset class="seg" id="view">
+          <legend class="visually-hidden">Режим просмотра</legend>
+          <label><input type="radio" name="view" value="fill" checked><span>Заливка</span></label>
+          <label><input type="radio" name="view" value="outline"><span>Контур и узлы</span></label>
+          <label><input type="radio" name="view" value="compare"><span>До и после</span></label>
+        </fieldset>
+        <div class="stage-tools">
+          <fieldset class="seg seg-small" id="bg">
+            <legend class="seg-legend">Фон</legend>
+            <label title="Светлый фон"><input type="radio" name="bg" value="light" checked><span><i class="swatch swatch-light" aria-hidden="true"></i><b class="visually-hidden">Светлый фон</b></span></label>
+            <label title="Тёмный фон"><input type="radio" name="bg" value="dark"><span><i class="swatch swatch-dark" aria-hidden="true"></i><b class="visually-hidden">Тёмный фон</b></span></label>
+            <label title="Прозрачный фон"><input type="radio" name="bg" value="checker"><span><i class="swatch swatch-checker" aria-hidden="true"></i><b class="visually-hidden">Прозрачный фон</b></span></label>
+          </fieldset>
+          <label class="check check-small"><input type="checkbox" id="grid" checked> Сетка</label>
+          <div class="zoom" role="group" aria-label="Масштаб">
+            <button type="button" class="btn btn-icon" id="zoom-out" aria-label="Уменьшить">−</button>
+            <button type="button" class="btn btn-small zoom-value" id="zoom-fit" title="Вписать в окно">×1</button>
+            <button type="button" class="btn btn-icon" id="zoom-in" aria-label="Увеличить">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="viewport" id="viewport" data-bg="light">
+        <div class="board" id="board"></div>
+        <div class="empty" id="empty">
+          <div class="empty-art" id="empty-art" aria-hidden="true"></div>
+          <p class="empty-title" id="empty-title">Обводка становится контуром</p>
+          <p class="empty-text" id="empty-text">Перетащите сюда .svg-файлы или вставьте код в поле «Исходный SVG». Можно сразу несколько файлов.</p>
+          <div class="actions">
+            <button type="button" class="btn btn-primary" id="empty-open">Открыть файлы</button>
+          </div>
+        </div>
+        <div class="drop" id="drop" hidden><p>Отпустите, чтобы открыть</p></div>
+      </div>
+
+      <p class="info-note" id="holes-note" hidden>Вырезанные места прозрачные — включите тёмный или прозрачный фон, чтобы их увидеть.</p>
+
+      <p class="contrast-note" id="contrast-note" hidden>Цвет иконки почти совпадает с фоном — на таком фоне её не будет видно.</p>
+
+      <p class="legend" id="legend" hidden><span class="legend-anchor" aria-hidden="true"></span> узлы контура <span class="legend-handle" aria-hidden="true"></span> ручки кривых. Чем меньше узлов, тем чище контур и легче файл.</p>
+
+      <div class="compare-bar" id="compare-bar" hidden>
+        <span>До</span>
+        <input type="range" id="compare" min="0" max="100" value="50" aria-label="Граница между исходником и результатом">
+        <span>После</span>
+      </div>
+
+      <div class="sizes" id="sizes" data-bg="light" aria-label="Результат в реальных размерах"></div>
+    </main>
   </div>
 
   <script src="vendor/svgpath.umd.js"></script>
   <script src="vendor/clipper.js"></script>
   <script src="src/stroke2path.js"></script>
+  <script src="src/zip.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
